@@ -1,0 +1,12 @@
+[Unit]
+Description=Check movie monitor health once a minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=60s
+AccuracySec=5s
+Persistent=true
+Unit=movie-watch-health.service
+
+[Install]
+WantedBy=timers.target

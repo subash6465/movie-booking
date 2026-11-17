@@ -1,0 +1,76 @@
+{
+  "version": 2,
+  "poll_seconds": 60,
+  "aggregation_seconds": 10,
+  "freshness_seconds": 180,
+  "max_backoff_seconds": 900,
+  "catalogue_refresh_seconds": 60,
+  "bms_background_checks": 2,
+  "observation_retention_days": 7,
+  "theatre_aliases": [
+    {
+      "id": "cinepolis-bsr-omr",
+      "city": "chennai",
+      "name": "Cinepolis BSR Mall OMR, Thoraipakkam, Chennai",
+      "providers": {
+        "bookmyshow": [
+          "CBMC"
+        ],
+        "district": [
+          "9505"
+        ],
+        "ticketnew": [
+          "9505"
+        ]
+      },
+      "names": [
+        "Cinepolis: BSR Mall, OMR, Thoraipakkam"
+      ]
+    }
+  ],
+  "watches": [
+    {
+      "id": "avengers-doomsday-chennai",
+      "enabled": true,
+      "movie": "Avengers: Doomsday",
+      "city": "chennai",
+      "date_range": {
+        "from": "2026-12-17",
+        "to": "2026-12-20"
+      },
+      "time_windows": {
+        "*": [
+          [
+            "00:00",
+            "23:59"
+          ]
+        ]
+      },
+      "languages": [
+        "English"
+      ],
+      "formats": [],
+      "theatres": [],
+      "providers": {
+        "district": {
+          "content_id": "176735",
+          "slug": "avengers-doomsday"
+        },
+        "ticketnew": {
+          "content_id": "176735",
+          "slug": "avengers-doomsday"
+        },
+        "bookmyshow": {
+          "event_codes": [
+            "ET00439706",
+            "ET00526287"
+          ],
+          "event_group": "EG00437704",
+          "region_code": "CHEN",
+          "slug": "avengers-doomsday"
+        }
+      }
+    }
+  ],
+  "bms_probe_interval_seconds": 5
+}

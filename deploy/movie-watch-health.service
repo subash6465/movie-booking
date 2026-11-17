@@ -1,0 +1,20 @@
+[Unit]
+Description=Log-only movie monitor health checks
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/movie-booking
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/home/ubuntu/movie-booking/.venv/bin/python scripts/check_health.py
+TimeoutStartSec=90
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/movie-booking/data
+MemoryMax=200M
