@@ -69,7 +69,11 @@ Never reset UNKNOWN deliveries blindly; the original POST may have succeeded.
 4. Keep the previous source release available for rollback. Schema migrations,
    when introduced, need explicit versioning and compatibility tests.
 
-No monitoring-history migration is required for this cleanup. The old research
+The 19 November TicketNew retirement migrates only retained District/BookMyShow
+watch scopes/offers to the new configuration generation, preserving baselines and
+delivery receipts. Removed-provider historical rows stay inactive for audit.
+The explicit migration helper requires the main process to be stopped and its
+database lock held. Ordinary restarts do not repeat the migration. The old research
 scripts and reports are no longer supported commands.
 
 ## Optional manual checks

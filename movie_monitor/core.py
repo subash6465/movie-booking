@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 from collections.abc import Iterable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
 
@@ -45,7 +45,7 @@ def required(value: dict, key: str, kind: type):
 
 
 def utc_session_time(value: str) -> datetime:
-    """District/TicketNew currently return UTC wall time without a suffix."""
+    """District currently return UTC wall time without a suffix."""
     result = datetime.fromisoformat(value.replace("Z", "+00:00"))
     return result.replace(tzinfo=UTC) if result.tzinfo is None else result.astimezone(UTC)
 
@@ -76,6 +76,12 @@ class Show:
     booking_url: str
     screen: str = ""
     available_seats: int | None = None
+    details: dict = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, payload: dict) -> Show:
+        """Read old and new stored offers without requiring optional fields."""
+        return cls(**{f.name: payload[f.name] for f in fields(cls) if f.name in payload})
 
     @property
     def local_start(self) -> datetime:
@@ -131,8 +137,8 @@ def validate_config(config: dict, *, cinema_mode: bool = False) -> dict:
     for value in dates:
         resolve_date(value)
     providers = required(config, "providers", dict)
-    if not providers or set(providers) - {"district", "ticketnew", "bookmyshow"}:
-        raise ValueError("Configure district, ticketnew, and/or bookmyshow")
+    if not providers or set(providers) - {"district", "bookmyshow"}:
+        raise ValueError("Configure district and/or bookmyshow")
     for name, settings in providers.items():
         if not isinstance(settings, dict):
             raise ValueError(f"Invalid settings for {name}")

@@ -1,7 +1,7 @@
 # Movie Booking Watch
 
 A Python service that watches movie listings and sends Telegram alerts when a
-new matching show becomes bookable. Supports BookMyShow, District and TicketNew,
+new matching show becomes bookable. Supports BookMyShow and District,
 with up to five independent movie preferences in one JSON file.
 
 The bot sends **booking-opening alerts only**. Failures, recovery events and
@@ -70,6 +70,11 @@ until stopped; expired watches become idle and can be edited without a restart.
   opening time. Seats may disappear before the user opens the link.
 - Ambiguous Telegram delivery outcomes require manual review rather than an
   automatic resend that could duplicate an accepted message.
+- Opening alerts include optional category inventory/prices, auditorium, subtitles
+  and explicit audio details when validated. District counts must reconcile with
+  show totals; BookMyShow gets category status/prices without guessed seat counts.
+  Missing or inconsistent extras never block a valid opening alert. Details carry
+  their platform and check time; see [validation rules](docs/alert-details.md).
 
 Polling normally runs about once a minute with independent backoff and paced HTTP
 requests. BookMyShow discovery and cinema checks have separate schedules.
@@ -131,3 +136,7 @@ The service runs independently of your computer on Oracle, but free-tier capacit
 VM reclamation and free-account allowances remain external constraints. It cannot
 guarantee uninterrupted service, zero missed alerts, or successful checkout.
 See [provider contracts and limitations](docs/providers.md).
+
+Counts describe provider-reported inventory at check time, not reserved seats or
+guaranteed auditorium capacity. BookMyShow numeric inventory remains unverified
+and is omitted. See [inventory research](docs/seat-inventory-research.md).

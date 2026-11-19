@@ -6,7 +6,6 @@ import os
 import sqlite3
 import sys
 from contextlib import closing
-from dataclasses import fields
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -73,7 +72,7 @@ def main():
             if payload["availability"] == "AVAILABLE" and datetime.fromisoformat(
                 payload["starts_at"]
             ) > at + timedelta(minutes=5):
-                show = Show(**{field.name: payload[field.name] for field in fields(Show)})
+                show = Show.from_dict(payload)
                 validate_show(show, watch, show.local_start.date().isoformat())
                 selected = watch, show
                 break
@@ -95,7 +94,7 @@ def main():
         ):
             continue
         candidate = json.loads(row["payload"])
-        other = Show(**{field.name: candidate[field.name] for field in fields(Show)})
+        other = Show.from_dict(candidate)
         if other.provider == show.provider or other.availability != "AVAILABLE":
             continue
         other_alias = explicit_theatre(other, app["theatre_aliases"])

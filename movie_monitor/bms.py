@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .core import IST, Observation, Show, finalize_observation, now, objects, required
+from .enrichment import bms_details
 from .http import FetchError, HttpClient
 from .providers import bms_state, same_title
 from .schedule import Schedule
@@ -312,6 +313,7 @@ def parse_venue(data, config, venue, day):
                             availability,
                             url,
                             item.get("ScreenName", ""),
+                            details=bms_details(item, child),
                         )
                     )
     # Validate response dates even when none of its movies match this watch.

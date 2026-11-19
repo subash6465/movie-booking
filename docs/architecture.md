@@ -10,7 +10,7 @@ transaction. The watchdog is a separate, log-only process.
 flowchart TD
     A[CLI / service] --> B[Validate and reload preferences]
     B --> C[Bounded provider workers]
-    C --> D[District / TicketNew adapters]
+    C --> D[District adapter]
     C --> E[BookMyShow cinema collector]
     E --> F[Independent catalogue and cinema retry clocks]
     D --> G[Validated observations]
@@ -31,13 +31,14 @@ flowchart TD
 | `cli.py`, `__main__.py` | Arguments, config/credential boundary, process lock |
 | `config.py`, `core.py` | Config validation, domain records and preference matching |
 | `providers/common.py` | Public-page decoding, movie/inventory validation |
-| `providers/district.py`, `ticketnew.py` | Pure payload-to-Show parsers |
-| `providers/collector.py` | District/TicketNew HTTP discovery, variants, pagination |
+| `providers/district.py` | Pure District payload-to-Show parser |
+| `providers/collector.py` | District HTTP discovery and language variants |
 | `bms.py` | BookMyShow cinema discovery, parsing, bounded API cache and schedules |
 | `http.py`, `schedule.py` | Timeouts, response bounds, pacing and retry clocks |
 | `engine.py` | Worker scheduling, live reload, ingestion and shutdown |
 | `identity.py` | Canonical cinema/performance identity and trusted URL checks |
 | `state.py` | SQLite transactions, baselines, offers, outbox and retention |
+| `enrichment.py` | Optional provider details, strict validation and snapshot rendering |
 | `delivery.py`, `notify.py` | Booking message policy and Telegram HTTP transport |
 | `ports.py` | Structural collector/sender interfaces |
 | `health.py`, `verification.py` | Local incidents and read-only genuine-event proof |
@@ -55,6 +56,8 @@ flowchart TD
    Unknown stock is never promoted to bookable stock.
 6. Only booking alerts use the bot. Health collection cannot load credentials or send.
 7. Test databases/evidence cannot qualify as a genuine production opening.
+8. Optional detail failures never establish stock or prevent a valid opening alert.
+   Enrichment does not affect show/performance keys or preference generations.
 
 The existing `v2_*` table names and key-generation algorithms are retained for
 compatibility. The old single-watch Store/outbox and browser experiments were

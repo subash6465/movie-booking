@@ -184,9 +184,7 @@ def validate_app(raw: dict) -> dict:
         if len(alias["name"]) > 200 or any(ord(c) < 32 for c in alias["name"]):
             raise ValueError("Invalid theatre alias name")
         for provider, venue_ids in alias.get("providers", {}).items():
-            if provider not in ("district", "ticketnew", "bookmyshow") or not isinstance(
-                venue_ids, list
-            ):
+            if provider not in ("district", "bookmyshow") or not isinstance(venue_ids, list):
                 raise ValueError("Invalid alias providers")
             for venue_id in venue_ids:
                 token = (city, provider, str(venue_id))

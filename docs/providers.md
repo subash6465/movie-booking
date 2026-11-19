@@ -9,7 +9,6 @@ and deduplication rules with controlled payloads.
 | Provider | Current collection path | Key checks |
 | --- | --- | --- |
 | District | City/movie page state for language/format discovery, then `/gw/consumer/movies/v5/movie` | content ID/title, city, variant, actual dates, show/category stock and disabled flags |
-| TicketNew | City movie catalogue, then `/gw/consumer/movies/v3/movie`, including pagination | movie/content IDs/title, city, language/variant, complete cinema coverage, actual dates and stock |
 | BookMyShow | `/CITY/cinemas` catalogue, then `/api/v3/mobile/showtimes/byvenue` | region, venue, film group/title, discovered child IDs, date consistency, sellable categories/cutoff/session flags |
 
 BookMyShow uses browser-compatible HTTP through curl-cffi, without a browser
@@ -30,6 +29,13 @@ Stock checks require positive, consistent availability. A listing can still sell
 out before checkout. Platform booking links lead to supported provider movie/show
 or seat-layout pages; they do not hold seats and may require user selection/login.
 Provider-published exact opening timestamps are not reliably available.
+
+Optional details are extracted from these same responses without new provider
+requests. District fixed-seat category counts require exact reconciliation with
+show totals; BookMyShow exposes only validated category status/prices. Partial or
+untrusted enrichment is omitted independently of the opening alert. See
+[alert detail contracts](alert-details.md) for field validation, ambiguity and
+message-length handling.
 
 Deduplication needs correct theatre identity. Different provider names require
 verified aliases. Matching identical names is not a universal venue registry.

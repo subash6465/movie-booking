@@ -115,8 +115,10 @@ class HttpClient:
 
 
 def guest_headers(provider: str) -> dict:
+    if provider != "district":
+        raise ValueError("Guest headers are supported only for District")
     return {
         "api_source": provider,
-        "x-app-type": "ed_mweb" if provider == "district" else "ticketnew_web",
+        "x-app-type": "ed_mweb",
         "x-guest-token": f"{int(time.time() * 1000)}_{secrets.randbelow(10**18)}_{secrets.token_hex(6)}",
     }

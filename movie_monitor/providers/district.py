@@ -3,6 +3,7 @@
 import urllib.parse
 
 from ..core import Show, required, utc_session_time
+from ..enrichment import district_details
 from .common import inventory_status, same_title
 
 
@@ -59,6 +60,7 @@ def parse_district(data: dict, config: dict, content_id: str, day: str) -> list[
                     url,
                     session.get("audi", ""),
                     avail,
+                    details=district_details(session),
                 )
             )
     return shows

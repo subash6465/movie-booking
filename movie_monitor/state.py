@@ -96,26 +96,8 @@ class State:
                 r["provider"] == show.provider and r["venue"] != show.cinema_id for r in candidates
             ):
                 raise ValueError("Ambiguous theatre identity; add a verified theatre_aliases entry")
-            # District and TicketNew share cinema identifiers; use that link even
-            # when their display names differ.
-            shared = (
-                self.db.execute(
-                    "SELECT * FROM v2_venues WHERE city=? AND venue=? AND provider IN ('district','ticketnew')",
-                    (show.city, show.cinema_id),
-                ).fetchone()
-                if show.provider in ("district", "ticketnew")
-                else None
-            )
-            canonical = (
-                shared["canonical"]
-                if shared
-                else candidates[0]["canonical"]
-                if candidates
-                else "name:" + name_key
-            )
-            name = (
-                shared["name"] if shared else candidates[0]["name"] if candidates else show.cinema
-            )
+            canonical = candidates[0]["canonical"] if candidates else "name:" + name_key
+            name = candidates[0]["name"] if candidates else show.cinema
         self.db.execute(
             "INSERT INTO v2_venues VALUES(?,?,?,?,?,?) ON CONFLICT(city,provider,venue) DO UPDATE SET name_key=excluded.name_key,canonical=excluded.canonical,name=excluded.name",
             (show.city, show.provider, show.cinema_id, name_key, canonical, name),
@@ -413,10 +395,10 @@ class State:
     def fresh_offers(self, key, active, freshness, at):
         at = at.astimezone(UTC)
         rows = self.db.execute(
-            "SELECT * FROM v2_offers WHERE performance=? AND valid=1 AND observed_at>=?",
+            "SELECT * FROM v2_offers WHERE performance=? AND valid=1 AND observed_at>=? ORDER BY observed_at DESC, provider, show_key",
             (key, (at - timedelta(seconds=freshness)).isoformat()),
         ).fetchall()
-        result = {}
+        result, identities = {}, {}
         for row in rows:
             if row["watch"] not in active:
                 continue
@@ -425,7 +407,17 @@ class State:
                 show["availability"] == "AVAILABLE"
                 and datetime.fromisoformat(show["starts_at"]) > at
             ):
-                result[show["provider"]] = show
+                provider = show["provider"]
+                identities.setdefault(provider, set()).add(
+                    (show["session_id"], show.get("screen", ""), show["language"], show["format"])
+                )
+                show["observed_at"] = row["observed_at"]
+                result.setdefault(provider, show)
+        for provider, variants in identities.items():
+            if len(variants) > 1:
+                # One alert may deliberately merge rooms/prints at the same time.
+                # Never attach one arbitrary room's inventory to that performance.
+                result[provider]["details"] = {}
         return list(result.values())
 
     def prepare(self, active, targets, freshness, aggregation, at=None):

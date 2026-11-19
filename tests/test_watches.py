@@ -48,7 +48,6 @@ def show(provider="district", sid="1", clock="18:00", availability="AVAILABLE"):
     )
     host = {
         "district": "www.district.in",
-        "ticketnew": "ticketnew.com",
         "bookmyshow": "in.bookmyshow.com",
     }[provider]
     return Show(
@@ -190,7 +189,7 @@ class WatchStateTests(unittest.TestCase):
             self.ingest(obs(provider, status="NO_SHOWS"))
 
     def test_all_existing_listings_silent_even_sold_out_then_reopened(self):
-        for provider in ("district", "ticketnew", "bookmyshow"):
+        for provider in ("district", "bookmyshow"):
             self.ingest(obs(provider, [show(provider, availability="UNKNOWN")]))
         later = AT + timedelta(minutes=1)
         self.ingest(obs(shows=[show()], at=later), later)
@@ -209,13 +208,12 @@ class WatchStateTests(unittest.TestCase):
         self.assertEqual(len(self.sender.messages), 2)
 
     def test_cross_platform_and_two_minute_late_platform_are_deduplicated(self):
-        self.baseline_empty(("district", "ticketnew", "bookmyshow"))
+        self.baseline_empty(("district", "bookmyshow"))
         later = AT + timedelta(minutes=1)
         self.ingest(obs(shows=[show()], at=later), later)
-        self.ingest(obs("ticketnew", [show("ticketnew")], at=later), later)
         self.assertEqual(self.send(later)["sent"], 1)
         text = self.sender.messages[0][1]
-        self.assertIn("Platforms: District, TicketNew", text)
+        self.assertIn("Platforms: District", text)
         self.assertNotIn("Platforms: BookMyShow", text)
         later += timedelta(minutes=2)
         self.ingest(obs("bookmyshow", [show("bookmyshow")], at=later), later)
@@ -223,13 +221,13 @@ class WatchStateTests(unittest.TestCase):
         self.assertEqual(self.state.status()["performances"], 1)
 
     def test_simultaneous_platforms_all_appear_in_one_message(self):
-        self.baseline_empty(("district", "ticketnew", "bookmyshow"))
+        self.baseline_empty(("district", "bookmyshow"))
         later = AT + timedelta(minutes=1)
-        for provider in ("district", "ticketnew", "bookmyshow"):
+        for provider in ("district", "bookmyshow"):
             self.ingest(obs(provider, [show(provider)], at=later), later)
         self.assertEqual(self.send(later)["sent"], 1)
         text = self.sender.messages[0][1]
-        self.assertIn("Platforms: BookMyShow, District, TicketNew", text)
+        self.assertIn("Platforms: BookMyShow, District", text)
         self.assertIn("Wednesday, 02 January 2030", text)
         self.assertIn("06:00 PM IST", text)
         self.assertIn("Language: English", text)
@@ -370,13 +368,13 @@ class WatchStateTests(unittest.TestCase):
         self.assertEqual(self.state.status()["performances"], 0)
 
     def test_stale_failed_or_removed_provider_is_excluded_from_message(self):
-        self.baseline_empty(("district", "ticketnew"))
+        self.baseline_empty(("district", "bookmyshow"))
         later = AT + timedelta(minutes=1)
         self.ingest(obs(shows=[show()], at=later), later)
-        self.ingest(obs("ticketnew", [show("ticketnew")], at=later), later)
-        self.ingest(obs("ticketnew", status="BLOCKED", at=later), later)
+        self.ingest(obs("bookmyshow", [show("bookmyshow")], at=later), later)
+        self.ingest(obs("bookmyshow", status="BLOCKED", at=later), later)
         self.send(later)
-        self.assertNotIn("TicketNew", self.sender.messages[0][1])
+        self.assertNotIn("BookMyShow", self.sender.messages[0][1])
 
     def test_future_stale_and_naive_observation_times_do_not_initialize(self):
         for stamp in (
@@ -409,11 +407,11 @@ class WatchStateTests(unittest.TestCase):
 
     def test_aggregation_collects_platforms_before_sending(self):
         self.app["aggregation_seconds"] = 10
-        self.baseline_empty(("district", "ticketnew"))
+        self.baseline_empty(("district", "bookmyshow"))
         self.ingest(obs(shows=[show()]))
         self.assertEqual(self.send()["sent"], 0)
         later = AT + timedelta(seconds=11)
-        self.ingest(obs("ticketnew", [show("ticketnew")], at=later), later)
+        self.ingest(obs("bookmyshow", [show("bookmyshow")], at=later), later)
         self.assertEqual(self.send(later)["sent"], 1)
 
     def test_new_group_receives_only_its_own_alert_without_replaying_other_groups(self):
@@ -717,11 +715,10 @@ class EngineTests(unittest.TestCase):
     def test_blocked_provider_does_not_discard_other_provider_results(self):
         raw = raw_app()
         raw["watches"][0]["dates"] = ["2099-01-01"]
-        raw["watches"][0]["providers"].pop("bookmyshow")
 
         class FakeCollector:
             def __init__(self, *args, **kwargs):
-                pass
+                self.client = object()
 
             def collect(self, provider, day):
                 if provider == "district":
@@ -731,15 +728,36 @@ class EngineTests(unittest.TestCase):
             def close(self):
                 pass
 
+        class FakeCinema:
+            def __init__(self, *args, **kwargs):
+                from movie_monitor.schedule import Schedule
+
+                self.active = Schedule()
+                self.probes = Schedule()
+
+            def collect_dates(self, days, emit=None):
+                observations = [Observation("bookmyshow", day, status="NO_SHOWS") for day in days]
+                for item in observations:
+                    if emit:
+                        emit(item)
+                return observations
+
+            def components(self):
+                return {
+                    key: {"state": "HEALTHY"}
+                    for key in ("catalogue", "cinemas", "discovery_probes")
+                }
+
         with (
             tempfile.TemporaryDirectory() as directory,
             patch("movie_monitor.engine.Collector", FakeCollector),
+            patch("movie_monitor.engine.CinemaCollector", FakeCinema),
         ):
             path = Path(directory) / "config.json"
             path.write_text(json.dumps(raw))
             report = run(str(path), str(Path(directory) / "state.sqlite3"))
         statuses = {p["provider"]: p["state"] for p in report["providers"]}
-        self.assertEqual(statuses, {"district": "DEGRADED", "ticketnew": "HEALTHY"})
+        self.assertEqual(statuses, {"district": "DEGRADED", "bookmyshow": "HEALTHY"})
 
     def test_indefinite_expired_watches_reload_and_invalid_json_pauses_notifications(self):
         # A real child process exercises signals, file replacement and the loop.
@@ -795,7 +813,7 @@ engine.run(sys.argv[1], sys.argv[2], loop=True, sender=object(), targets=['-1'])
                 report = wait_for(
                     lambda r: r["config_error"] is None
                     and len(r["watches"]) == 2
-                    and len(r["providers"]) == 6
+                    and len(r["providers"]) == 4
                 )
                 self.assertTrue(report["delivery"]["simulation_only"])
                 self.assertTrue(

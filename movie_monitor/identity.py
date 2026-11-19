@@ -105,7 +105,6 @@ def validate_show(show: Show, watch: dict, requested_date: str):
     url = urlsplit(show.booking_url)
     allowed = {
         "district": {"www.district.in", "district.in"},
-        "ticketnew": {"ticketnew.com", "www.ticketnew.com"},
         "bookmyshow": {"in.bookmyshow.com"},
     }
     if (

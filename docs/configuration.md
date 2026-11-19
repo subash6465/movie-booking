@@ -41,7 +41,7 @@ the provider's underlying data is current.
 | `languages` | Allowed language names; [] means any |
 | `formats` | Allowed labels, e.g. IMAX, EPIQ, NORMAL, 2D or 3D; [] means any |
 | `theatres` | Provider IDs, names or configured alias identities; [] means any |
-| `providers` | At least one of `district`, `ticketnew`, `bookmyshow` |
+| `providers` | At least one of `district`, `bookmyshow` |
 | `poll_seconds` | Optional watch-specific override, 60-3600 |
 | `coordinates` | Optional latitude/longitude for District in an otherwise unmapped city |
 
@@ -58,7 +58,7 @@ A date-specific entry replaces the `*` windows for that date. Split overnight
 windows across calendar dates. Use explicit dates for release-specific watches;
 relative dates move as the calendar changes and should be chosen deliberately.
 
-District and TicketNew each need `content_id` and can include `slug`.
+District needs `content_id` and can include `slug`.
 BookMyShow needs a verified `event_group` (EG...) and `region_code` (e.g. CHEN),
 plus optional `slug` and `event_codes` diagnostic metadata. Child event IDs are
 discovered from cinema responses, not restricted to that metadata list. Never
@@ -67,12 +67,12 @@ guess an ID: validate the exact movie/city association first.
 ## Theatre aliases
 
 Providers lack a universal theatre ID. The example maps Cinepolis BSR OMR:
-BookMyShow `CBMC`, District/TicketNew `9505`. Each alias has a unique `id`, `city`,
+BookMyShow `CBMC`, District `9505`. Each alias has a unique `id`, `city`,
 `name`, `providers` mapping to lists of theatre IDs, and optional alternative
 `names`. Add only verified equivalents. Aliases migrate existing performance
 identities and sent history; they do not replay already sent alerts.
 
-Exact normalized names and shared District/TicketNew IDs are fallback links.
+Exact normalized names are fallback links.
 There is no fuzzy merge. Review `state.name_based_theatres` in status for venues
 that may need aliases. Distinct same-provider IDs with an ambiguous name are
 rejected until an explicit mapping resolves them.

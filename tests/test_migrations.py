@@ -1,0 +1,56 @@
+import copy
+import unittest
+
+from movie_monitor.config import generation
+from movie_monitor.delivery import deliver
+from movie_monitor.migrations import migrate_removed_provider
+from movie_monitor.state import State
+from tests.test_watches import AT, Sender, obs, raw_app, show, watch
+
+
+class ProviderRemovalMigrationTests(unittest.TestCase):
+    def test_removal_preserves_silent_baselines_receipts_and_new_opening_detection(self):
+        current = watch()
+        previous = copy.deepcopy(current)
+        previous["providers"]["ticketnew"] = {"content_id": "176735", "slug": "avengers-doomsday"}
+        old_key, new_key = generation(previous), generation(current)
+        state = State(":memory:")
+        sender = Sender()
+        try:
+            state.ingest(old_key, previous, obs(shows=[show()]), (), AT)
+            state.ingest(
+                old_key, previous, obs(shows=[show(), show(sid="2", clock="19:00")]), (), AT
+            )
+            self.assertEqual(deliver(state, sender, {old_key}, ["-1"], raw_app(), at=AT)["sent"], 1)
+            before = state.status()
+            with state.db:
+                migrate_removed_provider(state.db, previous, current, "ticketnew")
+            self.assertEqual(state.status(), before)
+            self.assertEqual(deliver(state, sender, {new_key}, ["-1"], raw_app(), at=AT)["sent"], 0)
+            result = state.ingest(
+                new_key,
+                current,
+                obs(shows=[show(), show(sid="2", clock="19:00"), show(sid="3", clock="20:00")]),
+                (),
+                AT,
+            )
+            self.assertFalse(result["baseline"])
+            self.assertEqual(deliver(state, sender, {new_key}, ["-1"], raw_app(), at=AT)["sent"], 1)
+        finally:
+            state.close()
+
+    def test_removal_cannot_silently_change_dates_or_overwrite_existing_history(self):
+        current = watch()
+        previous = copy.deepcopy(current)
+        previous["providers"]["ticketnew"] = {"content_id": "176735"}
+        state = State(":memory:")
+        try:
+            changed = {**current, "languages": ["Tamil"]}
+            with state.db, self.assertRaises(ValueError):
+                migrate_removed_provider(state.db, previous, changed, "ticketnew")
+            for cfg in (previous, current):
+                state.ingest(generation(cfg), cfg, obs(), (), AT)
+            with state.db, self.assertRaises(RuntimeError):
+                migrate_removed_provider(state.db, previous, current, "ticketnew")
+        finally:
+            state.close()

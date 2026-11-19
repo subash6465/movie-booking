@@ -1,4 +1,4 @@
-"""Contract checks through the supported District/TicketNew collection path."""
+"""Contract checks through the supported District collection path."""
 
 import json
 import time
@@ -65,7 +65,7 @@ def district_payload(day=DAY):
 
 class ProviderContractTests(unittest.TestCase):
     def test_provider_denial_is_not_an_empty_catalogue(self):
-        for provider in ("district", "ticketnew"):
+        for provider in ("district",):
             for status in (403, 429):
                 with self.subTest(provider=provider, status=status):
                     result = collector(provider, FetchError(f"HTTP {status}", status)).collect(
@@ -85,13 +85,15 @@ class ProviderContractTests(unittest.TestCase):
         self.assertEqual(substituted.shows, [])
         self.assertFalse(substituted.complete)
 
-    def test_ticketnew_incomplete_pagination_never_leaks_partial_shows(self):
-        payload = {
-            "data": {"cinemasOrder": ["9505", "9999"], "pageSize": 1},
-            "pageData": {"sessions": {"9505": []}},
-            "meta": {"cinemas": []},
-        }
-        result = collector("ticketnew", payload).collect("ticketnew", DAY)
+    def test_ticketnew_is_rejected_without_network(self):
+        from movie_monitor.config import validate_app
+        from tests.test_watches import raw_app
+
+        raw = raw_app()
+        raw["watches"][0]["providers"]["ticketnew"] = {"content_id": "176735"}
+        with self.assertRaises(ValueError):
+            validate_app(raw)
+        client = Client(AssertionError("No network allowed"))
+        result = Collector(watch(), client=client).collect("ticketnew", DAY)
         self.assertEqual(result.status, "ERROR")
-        self.assertEqual(result.shows, [])
-        self.assertIn("incomplete cinema/session coverage", result.error)
+        self.assertEqual(client.count, 0)

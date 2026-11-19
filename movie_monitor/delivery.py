@@ -5,15 +5,17 @@ import time
 from datetime import datetime
 
 from .core import IST, now
+from .enrichment import detail_lines, omitted
 from .notify import DeliveryError
 from .ports import NotificationSender
 
 logger = logging.getLogger(__name__)
 
-NAMES = {"bookmyshow": "BookMyShow", "district": "District", "ticketnew": "TicketNew"}
+NAMES = {"bookmyshow": "BookMyShow", "district": "District"}
 
 
-def alert_text(row):
+def alert_text(row, *, at=None, freshness=180):
+    at = at or now()
     start = datetime.fromisoformat(row["starts_at"]).astimezone(IST)
     detected = datetime.fromisoformat(row["first_available"]).astimezone(IST)
     offers = sorted(row["offers"], key=lambda x: x["provider"])
@@ -48,6 +50,22 @@ def alert_text(row):
     text = "\n".join(lines)
     if len(text.encode("utf-16-le")) // 2 > 3900:
         raise ValueError("Notification exceeds Telegram message length; delivery requires review")
+    # Keep the complete booking alert and links even if enrichment is malformed
+    # or too long. Optional lines must never turn a valid alert into a failure.
+    for offer in offers:
+        try:
+            extra = detail_lines(offer, at, freshness)
+            if not extra:
+                continue
+            heading = f"\n\n{NAMES[offer['provider']]} details\n{extra[0]}"
+            pending = heading
+            for line in extra[1:]:
+                candidate = text + pending + "\n" + line
+                if len(candidate.encode("utf-16-le")) // 2 <= 3900:
+                    text = candidate
+                    pending = ""
+        except Exception:
+            omitted(offer["provider"], "optional detail rendering failed")
     return text
 
 
@@ -68,7 +86,7 @@ def deliver(
         if last_sent.get(("blocked", row["target"]), 0) > time.monotonic():
             continue
         try:
-            text = alert_text(row)
+            text = alert_text(row, at=at, freshness=app["freshness_seconds"])
         except ValueError as exc:
             state.delivery_failed(row["id"], str(exc), permanent=True, at=at)
             counts["failed"] += 1
