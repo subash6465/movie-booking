@@ -13,6 +13,7 @@ from movie_monitor.enrichment import bms_details, district_details, price, sanit
 from movie_monitor.providers.district import parse_district
 from movie_monitor.state import State
 from tests import test_watches
+from tests.support import ConfirmedReadiness
 from tests.test_providers import district_payload
 from tests.test_watches import AT, DAY, Sender, obs, raw_app, show, watch
 
@@ -305,7 +306,15 @@ class EnrichedDeliveryTests(unittest.TestCase):
         return self.state.ingest(self.key, self.watch, observation, self.app["theatre_aliases"], AT)
 
     def send(self):
-        return deliver(self.state, self.sender, {self.key}, ("-123",), self.app, at=AT)
+        return deliver(
+            self.state,
+            self.sender,
+            {self.key},
+            ("-123",),
+            self.app,
+            readiness=ConfirmedReadiness(),
+            at=AT,
+        )
 
     def test_detail_updates_and_later_platform_do_not_duplicate_alerts(self):
         self.ingest(obs(shows=[replace(show(), details=district_details(session()))]))

@@ -30,6 +30,14 @@ out before checkout. Platform booking links lead to supported provider movie/sho
 or seat-layout pages; they do not hold seats and may require user selection/login.
 Provider-published exact opening timestamps are not reliably available.
 
+A positive listing is not proof that seat selection will work. In a live Marina
+Mall investigation, District reported positive stock and BookMyShow reported an
+available session while BookMyShow's actual map read returned a cinema connectivity
+error and PVR's map read rejected the same session. The implemented
+[readiness policy](booking-readiness.md) requires BookMyShow confirmation for
+shared shows, with a user-authorized District-only listing fallback when its
+verification is unavailable. See the [reproduction and controls](booking-readiness-investigation.md).
+
 Optional details are extracted from these same responses without new provider
 requests. District fixed-seat category counts require exact reconciliation with
 show totals; BookMyShow exposes only validated category status/prices. Partial or

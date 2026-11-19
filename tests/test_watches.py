@@ -19,7 +19,7 @@ from movie_monitor.engine import run
 from movie_monitor.lock import SingleInstance
 from movie_monitor.notify import DeliveryError, Telegram
 from movie_monitor.state import State
-from tests.support import telegram_server
+from tests.support import ConfirmedReadiness, telegram_server
 
 AT = datetime(2029, 12, 1, 12, 0, tzinfo=IST)
 DAY = "2030-01-02"
@@ -182,7 +182,15 @@ class WatchStateTests(unittest.TestCase):
         return self.state.ingest(self.key, self.watch, observation, self.app["theatre_aliases"], at)
 
     def send(self, at=AT, targets=("-100123",)):
-        return deliver(self.state, self.sender, {self.key}, targets, self.app, at=at)
+        return deliver(
+            self.state,
+            self.sender,
+            {self.key},
+            targets,
+            self.app,
+            readiness=ConfirmedReadiness(),
+            at=at,
+        )
 
     def baseline_empty(self, providers=("district",)):
         for provider in providers:
@@ -400,19 +408,28 @@ class WatchStateTests(unittest.TestCase):
         self.baseline_empty()
         self.ingest(obs(shows=[show()]))
         self.assertEqual(
-            deliver(self.state, self.sender, set(), ["-1"], self.app, at=AT)["sent"], 0
+            deliver(
+                self.state,
+                self.sender,
+                set(),
+                ["-1"],
+                self.app,
+                readiness=ConfirmedReadiness(),
+                at=AT,
+            )["sent"],
+            0,
         )
         self.assertEqual(self.send(targets=("-1", "-2"))["sent"], 2)
         self.assertEqual(self.send(targets=("-1", "-2"))["sent"], 0)
 
-    def test_aggregation_collects_platforms_before_sending(self):
+    def test_legacy_aggregation_does_not_delay_a_confirmed_platform(self):
         self.app["aggregation_seconds"] = 10
         self.baseline_empty(("district", "bookmyshow"))
         self.ingest(obs(shows=[show()]))
-        self.assertEqual(self.send()["sent"], 0)
+        self.assertEqual(self.send()["sent"], 1)
         later = AT + timedelta(seconds=11)
         self.ingest(obs("bookmyshow", [show("bookmyshow")], at=later), later)
-        self.assertEqual(self.send(later)["sent"], 1)
+        self.assertEqual(self.send(later)["sent"], 0)
 
     def test_new_group_receives_only_its_own_alert_without_replaying_other_groups(self):
         self.baseline_empty()
@@ -434,10 +451,28 @@ class WatchStateTests(unittest.TestCase):
                 raise DeliveryError("Outcome unknown", ambiguous=True)
 
         self.assertEqual(
-            deliver(self.state, Ambiguous(), {self.key}, ["-1"], self.app, at=AT)["unknown"], 1
+            deliver(
+                self.state,
+                Ambiguous(),
+                {self.key},
+                ["-1"],
+                self.app,
+                readiness=ConfirmedReadiness(),
+                at=AT,
+            )["unknown"],
+            1,
         )
         self.assertEqual(
-            deliver(self.state, Ambiguous(), {self.key}, ["-1"], self.app, at=AT)["unknown"], 0
+            deliver(
+                self.state,
+                Ambiguous(),
+                {self.key},
+                ["-1"],
+                self.app,
+                readiness=ConfirmedReadiness(),
+                at=AT,
+            )["unknown"],
+            0,
         )
         self.assertEqual(len(self.sender.messages), 1)
         self.assertEqual(self.state.status()["delivery_states"]["UNKNOWN"], 1)
@@ -450,9 +485,16 @@ class WatchStateTests(unittest.TestCase):
         stop = threading.Event()
         stop.set()
         self.assertEqual(
-            deliver(self.state, self.sender, {self.key}, ["-1"], self.app, at=AT, stop=stop)[
-                "sent"
-            ],
+            deliver(
+                self.state,
+                self.sender,
+                {self.key},
+                ["-1"],
+                self.app,
+                readiness=ConfirmedReadiness(),
+                at=AT,
+                stop=stop,
+            )["sent"],
             0,
         )
         self.assertEqual(self.sender.messages, [])
@@ -471,18 +513,56 @@ class WatchStateTests(unittest.TestCase):
             state.ingest(self.key, self.watch, obs(shows=[show()]), self.app["theatre_aliases"], AT)
             client = Telegram("123:test", root)
             self.assertEqual(
-                deliver(state, client, {self.key}, ["-1"], self.app, at=AT)["failed"], 1
+                deliver(
+                    state,
+                    client,
+                    {self.key},
+                    ["-1"],
+                    self.app,
+                    readiness=ConfirmedReadiness(),
+                    at=AT,
+                )["failed"],
+                1,
             )
-            self.assertEqual(deliver(state, client, {self.key}, ["-1"], self.app, at=AT)["sent"], 0)
+            self.assertEqual(
+                deliver(
+                    state,
+                    client,
+                    {self.key},
+                    ["-1"],
+                    self.app,
+                    readiness=ConfirmedReadiness(),
+                    at=AT,
+                )["sent"],
+                0,
+            )
             later = AT + timedelta(seconds=61)
             self.assertEqual(
-                deliver(state, client, {self.key}, ["-1"], self.app, at=later)["sent"], 1
+                deliver(
+                    state,
+                    client,
+                    {self.key},
+                    ["-1"],
+                    self.app,
+                    readiness=ConfirmedReadiness(),
+                    at=later,
+                )["sent"],
+                1,
             )
             self.assertIn("First detected bookable", received[-1]["payload"]["text"])
             state.close()
             state = State(str(Path(directory) / "state.sqlite3"))
             self.assertEqual(
-                deliver(state, client, {self.key}, ["-1"], self.app, at=later)["sent"], 0
+                deliver(
+                    state,
+                    client,
+                    {self.key},
+                    ["-1"],
+                    self.app,
+                    readiness=ConfirmedReadiness(),
+                    at=later,
+                )["sent"],
+                0,
             )
             self.assertEqual(len(received), 2)
             state.close()

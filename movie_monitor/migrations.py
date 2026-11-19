@@ -33,24 +33,34 @@ def migrate_removed_provider(
         "v2_observations",
         "v2_offers",
     )
+    if (
+        "bookmyshow" in providers
+        and db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='v2_bms_presence'"
+        ).fetchone()
+    ):
+        tables += ("v2_bms_presence",)
     plans = []
     for table in tables:
         field = "provider" if table == "v2_offers" else "substr(scope,1,instr(scope,'|')-1)"
-        predicate = f"watch=? AND {field} IN ({placeholders})"
+        predicate = (
+            "watch=?" if table == "v2_bms_presence" else f"watch=? AND {field} IN ({placeholders})"
+        )
+        suffix = () if table == "v2_bms_presence" else providers
         source = db.execute(
-            f"SELECT COUNT(*) FROM {table} WHERE {predicate}", (before, *providers)
+            f"SELECT COUNT(*) FROM {table} WHERE {predicate}", (before, *suffix)
         ).fetchone()[0]
         destination = db.execute(
-            f"SELECT COUNT(*) FROM {table} WHERE {predicate}", (after, *providers)
+            f"SELECT COUNT(*) FROM {table} WHERE {predicate}", (after, *suffix)
         ).fetchone()[0]
         if source and destination:
             raise RuntimeError("Destination watch history already exists; manual review required")
-        plans.append((table, predicate, source))
-    for table, predicate, source in plans:
+        plans.append((table, predicate, source, suffix))
+    for table, predicate, source, suffix in plans:
         if source:
-            db.execute(f"UPDATE {table} SET watch=? WHERE {predicate}", (after, before, *providers))
+            db.execute(f"UPDATE {table} SET watch=? WHERE {predicate}", (after, before, *suffix))
     return {
         "previous_generation": before,
         "generation": after,
-        "rows_moved": {t: n for t, _, n in plans},
+        "rows_moved": {t: n for t, _, n, _ in plans},
     }

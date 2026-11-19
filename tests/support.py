@@ -4,6 +4,18 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
+class ConfirmedReadiness:
+    """Offline boundary double for tests focused on non-readiness behavior."""
+
+    def check(self, rows, state, at):
+        return [self.approved({**row, "first_ready_at": at.isoformat()}, at) for row in rows]
+
+    def approved(self, row, at):
+        from movie_monitor.readiness import collapse_confirmed
+
+        return {**row, "offers": collapse_confirmed(row["offers"])} if row["offers"] else None
+
+
 @contextmanager
 def telegram_server(responses=None):
     """Real loopback HTTP transport; never contacts Telegram or uses real tokens."""

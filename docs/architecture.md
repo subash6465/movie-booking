@@ -18,7 +18,8 @@ flowchart TD
     G --> H[Identity, preferences and freshness checks]
     H --> I[SQLite baseline and durable outbox]
     I --> J[Fresh offers + aggregation + deduplication]
-    J --> K[Booking-only Telegram transport]
+    J --> N[Asynchronous provider seat-map readiness]
+    N --> K[Fresh proof / immediate booking-only Telegram transport]
     K --> I
     I --> L[Status and genuine-opening evidence]
     L --> M[Log-only watchdog]
@@ -39,6 +40,7 @@ flowchart TD
 | `identity.py` | Canonical cinema/performance identity and trusted URL checks |
 | `state.py` | SQLite transactions, baselines, offers, outbox and retention |
 | `enrichment.py` | Optional provider details, strict validation and snapshot rendering |
+| `readiness.py` | Passive map reads, isolated retry workers, short-lived proof and immediate wakeup |
 | `delivery.py`, `notify.py` | Booking message policy and Telegram HTTP transport |
 | `ports.py` | Structural collector/sender interfaces |
 | `health.py`, `verification.py` | Local incidents and read-only genuine-event proof |
@@ -58,6 +60,10 @@ flowchart TD
 7. Test databases/evidence cannot qualify as a genuine production opening.
 8. Optional detail failures never establish stock or prevent a valid opening alert.
    Enrichment does not affect show/performance keys or preference generations.
+9. Delivery requires an explicit policy: matched BookMyShow shows need successful
+   map reads; District-only listings can take the user-authorized fallback when
+   verification is unavailable. HTTP 200 alone is not a successful map read.
+   Workers cannot write state or send messages.
 
 The existing `v2_*` table names and key-generation algorithms are retained for
 compatibility. The old single-watch Store/outbox and browser experiments were

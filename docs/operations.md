@@ -92,6 +92,17 @@ booking-alert test per group**, using fresh existing data and an isolated test
 database. It also checks restart/late-platform deduplication. It never emits health
 messages and never counts as genuine-opening evidence. Run only when the operator
 explicitly wants a test message; ordinary tests send nothing to a real group.
+The helper now requires a confirmed BookMyShow map read; a positive listing with
+a failing map cannot force a test notification.
+
+`latest.json` includes a local `readiness` summary. `v2_readiness` stores map
+results separately from Telegram receipts; inspect with a read-only SQLite
+connection. BookMyShow NOT_READY/UNKNOWN results keep shared alerts pending.
+District UNKNOWN can use the explicitly authorized District-only listing fallback.
+`v2_bms_presence` keeps known counterparts through outages and restarts; a missing
+or failed scan cannot erase a known BookMyShow veto. Verified alias updates
+reconcile stored cinema identities before delivery and preserve receipt history.
+See [readiness operations and timing](booking-readiness.md) for retry defaults.
 
 Keep `.env` private (0600 on Linux) and do not paste the token into logs or commands.
 The bot only needs permission to post; reading all group messages is unnecessary

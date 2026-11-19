@@ -44,13 +44,16 @@ def validate_app(raw: dict) -> dict:
         raise ValueError("Configure between one and five movies in watches")
     defaults = {
         "poll_seconds": 60,
-        "aggregation_seconds": 10,
+        "aggregation_seconds": 0,
         "freshness_seconds": 180,
         "max_backoff_seconds": 900,
         "catalogue_refresh_seconds": 60,
         "bms_background_checks": 2,
         "observation_retention_days": 7,
         "bms_probe_interval_seconds": 5,
+        "readiness_retry_seconds": 2,
+        "readiness_timeout_seconds": 8,
+        "readiness_freshness_seconds": 10,
     }
     if set(raw) - set(defaults) - {"version", "watches", "theatre_aliases"}:
         raise ValueError(
@@ -68,6 +71,9 @@ def validate_app(raw: dict) -> dict:
         "bms_background_checks": (1, 20),
         "observation_retention_days": (1, 90),
         "bms_probe_interval_seconds": (5, 120),
+        "readiness_retry_seconds": (1, 60),
+        "readiness_timeout_seconds": (2, 20),
+        "readiness_freshness_seconds": (5, 30),
     }
     for key, default in defaults.items():
         value = raw.setdefault(key, default)

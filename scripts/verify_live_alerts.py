@@ -5,6 +5,7 @@ import json
 import os
 import sqlite3
 import sys
+import time
 from contextlib import closing
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -20,6 +21,7 @@ from movie_monitor.identity import (
     validate_show,
 )
 from movie_monitor.notify import Telegram, destinations, load_env
+from movie_monitor.readiness import ReadinessGate
 from movie_monitor.state import State
 from movie_monitor.verification import opening_verification
 
@@ -35,6 +37,23 @@ class TestSender:
         message_id = self.real.send(target, text)
         self.sent.append({"target": target, "message_id": message_id})
         return message_id
+
+
+def deliver_confirmed(state, sender, active, targets, app, at):
+    """Even explicitly labelled transport tests require a successful map read."""
+    gate = ReadinessGate(app)
+    started = time.monotonic()
+    try:
+        while time.monotonic() - started < 12:
+            current = at + timedelta(seconds=time.monotonic() - started)
+            counts = deliver(state, sender, active, targets, app, readiness=gate, at=current)
+            if any(counts.values()) or not gate.inflight:
+                return counts
+            gate.wake.wait(0.05)
+            gate.wake.clear()
+        return {"sent": 0, "failed": 0, "unknown": 0}
+    finally:
+        gate.close()
 
 
 def main():
@@ -69,9 +88,11 @@ def main():
             ):
                 continue
             payload = json.loads(row["payload"])
-            if payload["availability"] == "AVAILABLE" and datetime.fromisoformat(
-                payload["starts_at"]
-            ) > at + timedelta(minutes=5):
+            if (
+                payload["provider"] == "bookmyshow"
+                and payload["availability"] == "AVAILABLE"
+                and datetime.fromisoformat(payload["starts_at"]) > at + timedelta(minutes=5)
+            ):
                 show = Show.from_dict(payload)
                 validate_show(show, watch, show.local_start.date().isoformat())
                 selected = watch, show
@@ -146,7 +167,7 @@ def main():
             app["theatre_aliases"],
             at,
         )
-        first = deliver(state, sender, {key}, targets, test_app, at=at)
+        first = deliver_confirmed(state, sender, {key}, targets, test_app, at)
     finally:
         state.close()
     state = State(str(path), test_mode=True)
@@ -165,7 +186,7 @@ def main():
                 app["theatre_aliases"],
                 later,
             )
-        second = deliver(state, sender, {key}, targets, test_app, at=later)
+        second = deliver_confirmed(state, sender, {key}, targets, test_app, later)
     finally:
         state.close()
     proof = opening_verification(path)

@@ -61,6 +61,11 @@ def parse_district(data: dict, config: dict, content_id: str, day: str) -> list[
                     session.get("audi", ""),
                     avail,
                     details=district_details(session),
+                    booking_data={
+                        "provider_id": session.get("pid"),
+                        "movie_code": session.get("mid"),
+                        "format_code": session.get("mcd"),
+                    },
                 )
             )
     return shows

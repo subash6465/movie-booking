@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
+from .config import generation
 from .core import IST, now
 from .enrichment import detail_lines, omitted
 from .notify import DeliveryError
-from .ports import NotificationSender
+from .ports import BookingReadiness, NotificationSender
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,9 @@ NAMES = {"bookmyshow": "BookMyShow", "district": "District"}
 def alert_text(row, *, at=None, freshness=180):
     at = at or now()
     start = datetime.fromisoformat(row["starts_at"]).astimezone(IST)
-    detected = datetime.fromisoformat(row["first_available"]).astimezone(IST)
+    detected = datetime.fromisoformat(
+        row.get("first_ready_at") or row["first_available"]
+    ).astimezone(IST)
     offers = sorted(row["offers"], key=lambda x: x["provider"])
     lines = [
         "New matching movie show",
@@ -30,7 +33,7 @@ def alert_text(row, *, at=None, freshness=180):
         "Platforms: " + ", ".join(NAMES[o["provider"]] for o in offers),
         "Language: " + ", ".join(sorted({o["language"] for o in offers})),
         "Format: " + " / ".join(sorted({o["format"] for o in offers})),
-        f"First detected bookable: {detected:%d %b %Y, %I:%M:%S %p} IST",
+        f"{'First detected available' if row.get('detection_basis') == 'district_listing' else 'First detected bookable'}: {detected:%d %b %Y, %I:%M:%S %p} IST",
         "",
         "Booking links:",
     ]
@@ -44,7 +47,9 @@ def alert_text(row, *, at=None, freshness=180):
     lines.extend(
         [
             "",
-            "Detection time is our first observation, not a provider-published opening time. Availability can change.",
+            "Detection time is our first listing observation, not a provider-published opening time. Availability can change."
+            if row.get("detection_basis") == "district_listing"
+            else "Detection time is our first successful seat-map check, not a provider-published opening time. Availability can change.",
         ]
     )
     text = "\n".join(lines)
@@ -70,13 +75,42 @@ def alert_text(row, *, at=None, freshness=180):
 
 
 def deliver(
-    state, sender: NotificationSender, active, targets, app, *, at=None, last_sent=None, stop=None
+    state,
+    sender: NotificationSender,
+    active,
+    targets,
+    app,
+    *,
+    readiness: BookingReadiness,
+    at=None,
+    last_sent=None,
+    stop=None,
 ):
     at = at or now()
-    state.prepare(active, targets, app["freshness_seconds"], app["aggregation_seconds"], at)
+    if stop is not None and stop.is_set():
+        return {"sent": 0, "failed": 0, "unknown": 0}
+    started = time.monotonic()
+    # A successful map read never waits for an aggregation window or another
+    # platform. The persistent performance/group key still suppresses late copies.
+    state.prepare(active, targets, app["freshness_seconds"], 0, at)
+    bms_active = {
+        generation(w)
+        for w in app["watches"]
+        if w.get("enabled", True) and "bookmyshow" in w["providers"]
+    }
+    aliases = app["theatre_aliases"]
+    rows = state.due(
+        active,
+        app["freshness_seconds"],
+        at,
+        all_offers=True,
+        bms_active=bms_active,
+        aliases=aliases,
+    )
+    rows = readiness.check(rows, state, at)
     counts = {"sent": 0, "failed": 0, "unknown": 0}
     last_sent = last_sent if last_sent is not None else {}
-    for row in state.due(active, app["freshness_seconds"], at):
+    for row in rows:
         if stop is not None and stop.is_set():
             break
         if row["target"] not in targets:
@@ -85,17 +119,44 @@ def deliver(
         # pass; rows are not discarded and remain due after backoff.
         if last_sent.get(("blocked", row["target"]), 0) > time.monotonic():
             continue
-        try:
-            text = alert_text(row, at=at, freshness=app["freshness_seconds"])
-        except ValueError as exc:
-            state.delivery_failed(row["id"], str(exc), permanent=True, at=at)
-            counts["failed"] += 1
-            continue
         delay = 1.1 - (time.monotonic() - last_sent.get(row["target"], -10))
         if delay > 0:
-            time.sleep(delay)
+            if stop is not None:
+                stop.wait(delay)
+            else:
+                time.sleep(delay)
         if stop is not None and stop.is_set():
             break
+        row_at = at + timedelta(seconds=max(0, time.monotonic() - started))
+        row = readiness.approved(
+            {
+                **row,
+                **state.booking_context(
+                    row["performance"],
+                    active,
+                    app["freshness_seconds"],
+                    row_at,
+                    bms_active=bms_active,
+                    aliases=aliases,
+                ),
+                "offers": state.fresh_offers(
+                    row["performance"],
+                    active,
+                    app["freshness_seconds"],
+                    row_at,
+                    all_offers=True,
+                ),
+            },
+            row_at,
+        )
+        if row is None:
+            continue
+        try:
+            text = alert_text(row, at=row_at, freshness=app["freshness_seconds"])
+        except ValueError as exc:
+            state.delivery_failed(row["id"], str(exc), permanent=True, at=row_at)
+            counts["failed"] += 1
+            continue
         if not state.claim(row["id"]):
             continue
         try:

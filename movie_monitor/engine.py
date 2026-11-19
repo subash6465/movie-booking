@@ -17,6 +17,7 @@ from .delivery import deliver
 from .http import HttpClient
 from .ports import NotificationSender, ProviderCollector
 from .providers import Collector
+from .readiness import ReadinessGate
 from .state import State
 
 logger = logging.getLogger(__name__)
@@ -70,9 +71,10 @@ def run(
         str(root / "catalogue"), app["catalogue_refresh_seconds"], app["max_backoff_seconds"]
     )
     stop = threading.Event()
+    wake = threading.Event()
     old_signals = {}
     for sig in (signal.SIGINT, signal.SIGTERM):
-        old_signals[sig] = signal.signal(sig, lambda *_: stop.set())
+        old_signals[sig] = signal.signal(sig, lambda *_: (stop.set(), wake.set()))
     executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="movie-provider")
     jobs = {}
     retired = []
@@ -89,6 +91,11 @@ def run(
     last_report_signature = None
     report_due = 0
     report_path = Path(report_path) if report_path else root / "latest.json"
+    readiness = ReadinessGate(app, wake=wake) if sender else None
+
+    def emit(job, batch, obs):
+        events.put((job, batch, obs))
+        wake.set()
 
     def accept(job, obs):
         try:
@@ -184,6 +191,7 @@ def run(
             if key not in desired:
                 del completed[key]
         active_watches = {key for key, _ in desired}
+        state.reconcile_aliases(active_watches, app["theatre_aliases"])
         for key in list(scope_errors):
             if key[0] not in active_watches:
                 del scope_errors[key]
@@ -205,6 +213,9 @@ def run(
                     if signature != config_signature:
                         updated = load_app(config_path)
                         app = updated
+                        if readiness:
+                            readiness.app = app
+                            readiness.prober.timeout = app["readiness_timeout_seconds"]
                         catalogue.refresh_seconds = app["catalogue_refresh_seconds"]
                         catalogue.schedule.interval = app["catalogue_refresh_seconds"]
                         catalogue.schedule.maximum = app["max_backoff_seconds"]
@@ -296,7 +307,7 @@ def run(
                     job.future = executor.submit(
                         job.collect,
                         stop,
-                        lambda obs, job=job, batch=batch: events.put((job, batch, obs)),
+                        lambda obs, job=job, batch=batch: emit(job, batch, obs),
                     )
             drain()
             for job in list(retired):
@@ -305,7 +316,16 @@ def run(
                     retired.remove(job)
             active = {job.key for job in jobs.values()}
             delivery = (
-                deliver(state, sender, active, targets, app, last_sent=last_sent, stop=stop)
+                deliver(
+                    state,
+                    sender,
+                    active,
+                    targets,
+                    app,
+                    readiness=readiness,
+                    last_sent=last_sent,
+                    stop=stop,
+                )
                 if sender and not config_error
                 else None
             )
@@ -322,6 +342,7 @@ def run(
                 "providers": list(health.values()),
                 "state": state.status(),
                 "delivery": delivery,
+                "readiness": readiness.summary() if readiness else None,
                 "semantics": "Initial successful scopes are silent baselines. First detected times are local observations.",
             }
             report["coverage"] = (
@@ -348,17 +369,15 @@ def run(
                 report_due, last_report_signature = tick + 30, signature
             finished = jobs and all(completed.get(key, 0) >= (cycles or 1) for key in jobs)
             if (not loop or cycles) and (finished or not jobs):
-                # Let the aggregation window finish before a bounded diagnostic exits.
-                if sender and not config_error and app["aggregation_seconds"]:
-                    stop.wait(app["aggregation_seconds"])
-                    report["delivery"] = deliver(
-                        state, sender, active, targets, app, last_sent=last_sent, stop=stop
-                    )
-                break
-            stop.wait(1)
+                if readiness is None or not readiness.inflight:
+                    break
+            wake.wait(0.25)
+            wake.clear()
     finally:
         stop.set()
         executor.shutdown(wait=True, cancel_futures=True)
+        if readiness:
+            readiness.close()
         catalogue.close()
         for job in [*jobs.values(), *retired]:
             job.collector.close()

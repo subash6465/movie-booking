@@ -314,6 +314,14 @@ def parse_venue(data, config, venue, day):
                             url,
                             item.get("ScreenName", ""),
                             details=bms_details(item, child),
+                            booking_data={
+                                "show_seat_number": detail.get("Venues", {}).get("ShowSeatNo"),
+                                "best_seats_available": detail.get("Venues", {}).get(
+                                    "BestSeatsAvail"
+                                ),
+                                "couple_seats": detail.get("Venues", {}).get("CoupleSeats")
+                                or item.get("CoupleSeats"),
+                            },
                         )
                     )
     # Validate response dates even when none of its movies match this watch.

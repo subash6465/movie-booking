@@ -77,6 +77,7 @@ class Show:
     screen: str = ""
     available_seats: int | None = None
     details: dict = field(default_factory=dict)
+    booking_data: dict = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, payload: dict) -> Show:

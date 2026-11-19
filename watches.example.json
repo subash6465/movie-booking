@@ -1,7 +1,10 @@
 {
   "version": 2,
   "poll_seconds": 60,
-  "aggregation_seconds": 10,
+  "aggregation_seconds": 0,
+  "readiness_retry_seconds": 2,
+  "readiness_timeout_seconds": 8,
+  "readiness_freshness_seconds": 10,
   "freshness_seconds": 180,
   "max_backoff_seconds": 900,
   "catalogue_refresh_seconds": 60,
@@ -22,6 +25,120 @@
       },
       "names": [
         "Cinepolis: BSR Mall, OMR, Thoraipakkam"
+      ]
+    },
+    {
+      "id": "pvr-escape-express-avenue",
+      "city": "chennai",
+      "name": "HDFC Millennia PVR Escape-Express Avenue Mall, Chennai",
+      "providers": {
+        "district": [
+          "1022257"
+        ],
+        "bookmyshow": [
+          "PVES"
+        ]
+      },
+      "names": [
+        "HDFC Millennia PVR: Escape-Express Avenue Mall"
+      ]
+    },
+    {
+      "id": "pvr-palazzo-vijaya-mall",
+      "city": "chennai",
+      "name": "PVR Palazzo, The Nexus Vijaya Mall, Chennai",
+      "providers": {
+        "district": [
+          "1022274"
+        ],
+        "bookmyshow": [
+          "PVPZ"
+        ]
+      },
+      "names": [
+        "PVR: Palazzo, The Nexus Vijaya Mall"
+      ]
+    },
+    {
+      "id": "pvr-aerohub",
+      "city": "chennai",
+      "name": "PVR Aerohub, Chennai",
+      "providers": {
+        "district": [
+          "1022289"
+        ],
+        "bookmyshow": [
+          "PABC"
+        ]
+      },
+      "names": [
+        "PVR Aerohub, Chennai (Audi 3-All New 3D Projection)",
+        "PVR: Aerohub, Chennai"
+      ]
+    },
+    {
+      "id": "pvr-vr-chennai",
+      "city": "chennai",
+      "name": "PVR VR Mall, Anna Nagar, Chennai",
+      "providers": {
+        "district": [
+          "1022304"
+        ],
+        "bookmyshow": [
+          "PCAN"
+        ]
+      },
+      "names": [
+        "PVR: VR Chennai, Anna Nagar"
+      ]
+    },
+    {
+      "id": "inox-luxe-phoenix-velachery",
+      "city": "chennai",
+      "name": "INOX LUXE Phoenix Market City, Velachery, Chennai",
+      "providers": {
+        "district": [
+          "1020779"
+        ],
+        "bookmyshow": [
+          "INPR"
+        ]
+      },
+      "names": [
+        "INOX Phoenix Market City (formerly Jazz Cinemas), Velachery, Chennai",
+        "INOX: LUXE Phoenix Market City, Velachery"
+      ]
+    },
+    {
+      "id": "pvr-sathyam",
+      "city": "chennai",
+      "name": "PVR Sathyam, Royapettah, Chennai",
+      "providers": {
+        "district": [
+          "1022244"
+        ],
+        "bookmyshow": [
+          "PVSR"
+        ]
+      },
+      "names": [
+        "PVR: Sathyam, Royapettah"
+      ]
+    },
+    {
+      "id": "inox-marina-mall",
+      "city": "chennai",
+      "name": "INOX The Marina Mall OMR, Egatoor, Chennai",
+      "providers": {
+        "district": [
+          "1020778"
+        ],
+        "bookmyshow": [
+          "INTO"
+        ]
+      },
+      "names": [
+        "INOX: The Marina Mall, OMR"
       ]
     }
   ],

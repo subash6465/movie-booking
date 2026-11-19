@@ -11,7 +11,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from .core import UTC, now
+from .core import IST, UTC, Show, now
 from .identity import (
     explicit_theatre,
     performance_key,
@@ -50,6 +50,15 @@ class State:
             observed_at TEXT, payload TEXT, valid INTEGER NOT NULL DEFAULT 1,
             PRIMARY KEY(watch,provider,show_key));
           CREATE INDEX IF NOT EXISTS v2_offer_performance ON v2_offers(performance,valid,observed_at);
+          CREATE TABLE IF NOT EXISTS v2_readiness(
+            performance TEXT, provider TEXT, show_key TEXT, signature TEXT NOT NULL,
+            status TEXT NOT NULL, checked_at TEXT NOT NULL, first_ready_at TEXT,
+            reason TEXT NOT NULL, http_status INTEGER,
+            PRIMARY KEY(performance,provider,show_key));
+          CREATE TABLE IF NOT EXISTS v2_bms_presence(
+            watch TEXT, show_key TEXT, performance TEXT, observed_at TEXT, payload TEXT,
+            PRIMARY KEY(watch,show_key));
+          CREATE INDEX IF NOT EXISTS v2_bms_presence_performance ON v2_bms_presence(performance);
           CREATE TABLE IF NOT EXISTS v2_deliveries(
             id INTEGER PRIMARY KEY, performance TEXT, target TEXT, state TEXT NOT NULL,
             created_at TEXT, next_attempt TEXT, attempts INTEGER NOT NULL DEFAULT 0,
@@ -69,6 +78,9 @@ class State:
         # A crash after the POST could leave an accepted message unacknowledged.
         # Automatic resend would violate the no-duplicate requirement.
         with self.db:
+            self.db.execute("""INSERT OR IGNORE INTO v2_bms_presence
+                SELECT watch,show_key,performance,observed_at,payload FROM v2_offers
+                WHERE provider='bookmyshow'""")
             self.db.execute(
                 "UPDATE v2_deliveries SET state='UNKNOWN',error='Process stopped during delivery; manual review needed' WHERE state='SENDING'"
             )
@@ -171,6 +183,7 @@ class State:
                     ),
                 )
         self.db.execute("UPDATE v2_offers SET performance=? WHERE performance=?", (new, old))
+        self.db.execute("UPDATE v2_bms_presence SET performance=? WHERE performance=?", (new, old))
         evidence = self.db.execute(
             "SELECT * FROM v2_opening_evidence WHERE performance=?", (old,)
         ).fetchone()
@@ -180,6 +193,15 @@ class State:
                 (new, evidence["observed_at"], evidence["test_mode"], evidence["payload"]),
             )
         self.db.execute("UPDATE v2_performances SET retired=1 WHERE key=?", (old,))
+
+    def reconcile_aliases(self, active, aliases):
+        """Resolve stored venue identities before the first policy decision/reload."""
+        if not aliases:
+            return
+        with self.db:
+            for row in self.db.execute("SELECT watch,payload FROM v2_offers").fetchall():
+                if row["watch"] in active:
+                    self._theatre(Show.from_dict(json.loads(row["payload"])), aliases)
 
     def ingest(self, watch_key, watch, observation, aliases=(), at=None, freshness=180):
         at = (at or now()).astimezone(UTC)
@@ -327,6 +349,19 @@ class State:
                             json.dumps(show.to_dict(), ensure_ascii=False),
                         ),
                     )
+                    if show.provider == "bookmyshow":
+                        self.db.execute(
+                            """INSERT INTO v2_bms_presence VALUES(?,?,?,?,?)
+                            ON CONFLICT(watch,show_key) DO UPDATE SET performance=excluded.performance,
+                              observed_at=excluded.observed_at,payload=excluded.payload""",
+                            (
+                                watch_key,
+                                show.key,
+                                key,
+                                stamp.isoformat(),
+                                json.dumps(show.to_dict(), ensure_ascii=False),
+                            ),
+                        )
                 self.db.execute(
                     "DELETE FROM v2_offers WHERE watch=? AND scope=? AND valid=0",
                     (watch_key, scope),
@@ -392,13 +427,13 @@ class State:
             "complete": good,
         }
 
-    def fresh_offers(self, key, active, freshness, at):
+    def fresh_offers(self, key, active, freshness, at, *, all_offers=False):
         at = at.astimezone(UTC)
         rows = self.db.execute(
             "SELECT * FROM v2_offers WHERE performance=? AND valid=1 AND observed_at>=? ORDER BY observed_at DESC, provider, show_key",
             (key, (at - timedelta(seconds=freshness)).isoformat()),
         ).fetchall()
-        result, identities = {}, {}
+        result, identities, offers = {}, {}, []
         for row in rows:
             if row["watch"] not in active:
                 continue
@@ -412,7 +447,10 @@ class State:
                     (show["session_id"], show.get("screen", ""), show["language"], show["format"])
                 )
                 show["observed_at"] = row["observed_at"]
+                offers.append(show)
                 result.setdefault(provider, show)
+        if all_offers:
+            return offers
         for provider, variants in identities.items():
             if len(variants) > 1:
                 # One alert may deliberately merge rooms/prints at the same time.
@@ -448,7 +486,7 @@ class State:
                             (perf["key"], target, at.isoformat(), at.isoformat()),
                         )
 
-    def due(self, active, freshness, at=None):
+    def due(self, active, freshness, at=None, *, all_offers=False, bms_active=None, aliases=()):
         at = (at or now()).astimezone(UTC)
         result = []
         rows = self.db.execute(
@@ -456,10 +494,111 @@ class State:
             (at.isoformat(),),
         ).fetchall()
         for row in rows:
-            offers = self.fresh_offers(row["performance"], active, freshness, at)
+            offers = self.fresh_offers(
+                row["performance"], active, freshness, at, all_offers=all_offers
+            )
             if offers and not row["baseline"] and not row["retired"]:
-                result.append({**dict(row), "offers": offers})
+                result.append(
+                    {
+                        **dict(row),
+                        "offers": offers,
+                        **self.booking_context(
+                            row["performance"],
+                            active,
+                            freshness,
+                            at,
+                            bms_active=bms_active,
+                            aliases=aliases,
+                        ),
+                    }
+                )
         return result
+
+    def booking_context(self, performance, active, freshness, at, *, bms_active=None, aliases=()):
+        """Keep known BMS counterparts through outages, withdrawal and restarts."""
+        bms_active = active if bms_active is None else bms_active
+        known = [
+            {**json.loads(r["payload"]), "observed_at": r["observed_at"]}
+            for r in self.db.execute(
+                "SELECT * FROM v2_bms_presence WHERE performance=?", (performance,)
+            )
+            if r["watch"] in active and r["watch"] in bms_active
+        ]
+        perf = self.db.execute(
+            "SELECT * FROM v2_performances WHERE key=?", (performance,)
+        ).fetchone()
+        venues = {
+            r[0]
+            for r in self.db.execute(
+                "SELECT venue FROM v2_venues WHERE city=? AND canonical=? AND provider='bookmyshow'",
+                (perf["city"], perf["theatre"]),
+            )
+        }
+        for alias in aliases:
+            if alias["city"] == perf["city"] and alias["id"] == perf["theatre"]:
+                venues.update(str(v) for v in alias.get("providers", {}).get("bookmyshow", []))
+        day = datetime.fromisoformat(perf["starts_at"]).astimezone(IST).date().isoformat()
+        scopes = [
+            r
+            for r in self.db.execute(
+                "SELECT * FROM v2_scopes WHERE scope LIKE ?", (f"bookmyshow|{day}|%",)
+            )
+            if r["watch"] in active
+        ]
+        # A known venue needs a fresh completed scope before absence can mean
+        # District-only. A city scope exists only in direct collector/tests.
+        required = {f"bookmyshow|{day}|{v}" for v in venues}
+        fresh = {
+            r["scope"]
+            for r in scopes
+            if r["initialized"]
+            and r["status"] in ("OK", "NO_SHOWS", "WAITING")
+            and -30 <= (at - datetime.fromisoformat(r["observed_at"])).total_seconds() <= freshness
+        }
+        watches = {
+            r[0]
+            for r in self.db.execute(
+                "SELECT watch FROM v2_offers WHERE performance=?", (performance,)
+            )
+        }
+        has_enabled_bms = bool(watches & active & bms_active)
+        specific = any(r["scope"] in required for r in scopes)
+        absence_checked = (
+            not has_enabled_bms
+            or not required
+            or required <= fresh
+            or (f"bookmyshow|{day}|city" in fresh and not specific)
+        )
+        return {"bms_known": known, "bms_absence_checked": absence_checked}
+
+    def record_readiness(self, performance, offer, signature, result):
+        """Audit a map read without consuming a delivery receipt or changing baselines."""
+        ready = result.checked_at if result.status == "READY" else None
+        with self.db:
+            self.db.execute(
+                """INSERT INTO v2_readiness VALUES(?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(performance,provider,show_key) DO UPDATE SET
+                  signature=excluded.signature,status=excluded.status,checked_at=excluded.checked_at,
+                  first_ready_at=CASE WHEN v2_readiness.signature=excluded.signature
+                    THEN COALESCE(v2_readiness.first_ready_at,excluded.first_ready_at)
+                    ELSE excluded.first_ready_at END,
+                  reason=excluded.reason,http_status=excluded.http_status""",
+                (
+                    performance,
+                    offer["provider"],
+                    offer["key"],
+                    signature,
+                    result.status,
+                    result.checked_at,
+                    ready,
+                    result.reason,
+                    result.http_status,
+                ),
+            )
+        return self.db.execute(
+            "SELECT first_ready_at FROM v2_readiness WHERE performance=? AND provider=? AND show_key=?",
+            (performance, offer["provider"], offer["key"]),
+        ).fetchone()[0]
 
     def claim(self, delivery_id):
         with self.db:
@@ -538,6 +677,14 @@ class State:
             )
             self.db.execute(
                 "DELETE FROM v2_opening_evidence WHERE performance IN (SELECT key FROM v2_performances WHERE starts_at<?)",
+                (cutoff,),
+            )
+            self.db.execute(
+                "DELETE FROM v2_readiness WHERE performance IN (SELECT key FROM v2_performances WHERE starts_at<?)",
+                (cutoff,),
+            )
+            self.db.execute(
+                "DELETE FROM v2_bms_presence WHERE performance IN (SELECT key FROM v2_performances WHERE starts_at<?)",
                 (cutoff,),
             )
             self.db.execute("DELETE FROM v2_performances WHERE starts_at<?", (cutoff,))

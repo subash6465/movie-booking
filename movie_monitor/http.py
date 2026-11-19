@@ -13,9 +13,10 @@ from dataclasses import dataclass
 
 
 class FetchError(RuntimeError):
-    def __init__(self, message: str, status: int | None = None):
+    def __init__(self, message: str, status: int | None = None, retry_after: int | None = None):
         super().__init__(message)
         self.status = status
+        self.retry_after = retry_after
 
 
 @dataclass
@@ -34,12 +35,13 @@ class HttpClient:
     _host_lock = threading.Lock()
     _host_requests: dict[str, float] = {}
 
-    def __init__(self, timeout: int = 25, min_gap: float = 1.0):
+    def __init__(self, timeout: int = 25, min_gap: float = 1.0, max_age: int = 180):
         self.timeout = timeout
         self.min_gap = min_gap
         self.count = 0
         self.last_request: dict[str, float] = {}
         self.bms_session = None
+        self.max_age = max_age
 
     def _pace(self, url: str):
         host = urllib.parse.urlsplit(url).netloc
@@ -59,29 +61,46 @@ class HttpClient:
         headers: dict | None = None,
         browser_http: bool = False,
     ) -> Response:
+        return self._request("GET", url, params, headers, browser_http)
+
+    def post(self, url, *, body: bytes, params=None, headers=None, browser_http=False):
+        return self._request("POST", url, params, headers, browser_http, body)
+
+    def _request(self, method, url, params, headers, browser_http, body=None):
         if params:
             url += ("&" if "?" in url else "?") + urllib.parse.urlencode(params)
         self._pace(url)
+        retry_after = None
         try:
             if browser_http:
                 from curl_cffi import requests
 
                 if self.bms_session is None:
                     self.bms_session = requests.Session(impersonate="safari")
-                res = self.bms_session.get(
+                request = self.bms_session.get if method == "GET" else self.bms_session.post
+                res = request(
                     url,
                     timeout=self.timeout,
                     headers={"Cache-Control": "no-cache", "Pragma": "no-cache", **(headers or {})},
+                    **({"data": body} if body is not None else {}),
                 )
                 if len(res.content) > 10_000_000:
                     raise FetchError("Response exceeded 10 MB limit", res.status_code)
                 age = res.headers.get("Age", "0")
-                if age.isdigit() and int(age) > 180:
+                if age.isdigit() and int(age) > self.max_age:
                     raise FetchError("Provider cache age exceeds freshness limit", res.status_code)
                 result = Response(res.status_code, res.text)
+                retry_after = res.headers.get("Retry-After")
             else:
                 req = urllib.request.Request(
-                    url, headers={"Accept-Encoding": "gzip, deflate", **(headers or {})}
+                    url,
+                    data=body,
+                    method=method,
+                    headers={
+                        "Accept-Encoding": "gzip, deflate",
+                        "Cache-Control": "no-cache",
+                        **(headers or {}),
+                    },
                 )
                 try:
                     res = urllib.request.urlopen(req, timeout=self.timeout)
@@ -89,7 +108,7 @@ class HttpClient:
                     res = exc
                 with res:
                     age = res.headers.get("Age", "0")
-                    if age.isdigit() and int(age) > 180:
+                    if age.isdigit() and int(age) > self.max_age:
                         raise FetchError("Provider cache age exceeds freshness limit", res.code)
                     body = res.read(10_000_001)
                     if len(body) > 10_000_000:
@@ -100,13 +119,19 @@ class HttpClient:
                     elif encoding == "deflate":
                         body = zlib.decompress(body)
                     result = Response(res.code, body.decode("utf-8", "replace"))
+                    retry_after = res.headers.get("Retry-After")
         except FetchError:
             raise
         except Exception as exc:
             # Deliberately omit request URLs, cookies and request headers.
             raise FetchError(f"Network/client failure: {type(exc).__name__}") from exc
         if result.status not in (200, 204):
-            raise FetchError(f"HTTP {result.status}", result.status)
+            retry = (
+                min(int(retry_after), 3600)
+                if isinstance(retry_after, str) and retry_after.isdigit()
+                else None
+            )
+            raise FetchError(f"HTTP {result.status}", result.status, retry)
         return result
 
     def close(self):

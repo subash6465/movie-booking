@@ -59,15 +59,19 @@ until stopped; expired watches become idle and can be edited without a restart.
 - Existing matching listings are saved silently on the first successful check.
   This includes sold-out and unavailable listings; reopening a baseline show
   does not create an alert.
-- A later new matching performance can alert once it is freshly verified as
-  bookable. Wrong movies/dates, unknown stock and invalid responses are rejected.
+- A later new performance needs fresh positive listing stock. BookMyShow needs
+  an accepted map read. A District show with a matching BookMyShow counterpart
+  waits for BookMyShow to pass. District-only listings may alert when District
+  verification is unavailable; explicitly closed maps do not qualify.
 - Deduplication uses movie, city, canonical theatre and local show-start minute.
   It survives restarts. Provider, screen, session ID, language and format do not
   create another alert for the same performance.
-- Available platforms found during the short aggregation window are combined.
-  A later platform offering the same performance does not trigger another alert.
-- Notification time means **first detected bookable**, not the provider's exact
-  opening time. Seats may disappear before the user opens the link.
+- Platforms eligible under this policy are combined. There is no aggregation
+  wait: the first eligible platform can alert immediately. A later
+  platform offering the same performance does not trigger another alert.
+- Detection time means the first accepted map check, or the first listing
+  observation for District-only fallback. Neither is an exact provider opening
+  timestamp. Seats may disappear before the user opens the link.
 - Ambiguous Telegram delivery outcomes require manual review rather than an
   automatic resend that could duplicate an accepted message.
 - Opening alerts include optional category inventory/prices, auditorium, subtitles
@@ -78,7 +82,11 @@ until stopped; expired watches become idle and can be edited without a restart.
 
 Polling normally runs about once a minute with independent backoff and paced HTTP
 requests. BookMyShow discovery and cinema checks have separate schedules.
-A five-second scheduler tick is not a five-second poll of every cinema.
+Fast scheduler wakeups do not mean every cinema is polled every second.
+
+Pending new shows have separate asynchronous map checks, normally retrying a
+business rejection after two seconds. Successful checks wake delivery immediately.
+Access denials/rate limits back off. See [readiness rules](docs/booking-readiness.md).
 
 ## Configuration, state and logs
 
@@ -136,6 +144,12 @@ The service runs independently of your computer on Oracle, but free-tier capacit
 VM reclamation and free-account allowances remain external constraints. It cannot
 guarantee uninterrupted service, zero missed alerts, or successful checkout.
 See [provider contracts and limitations](docs/providers.md).
+
+Listing availability can disagree with the booking backend. BookMyShow's map-read
+path is verified; District's unresolved verification has an explicitly authorized
+District-only listing fallback. Known matching BookMyShow failures still block it.
+The [Marina Mall investigation](docs/booking-readiness-investigation.md) records
+the reproduced failure and working control.
 
 Counts describe provider-reported inventory at check time, not reserved seats or
 guaranteed auditorium capacity. BookMyShow numeric inventory remains unverified

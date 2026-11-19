@@ -12,7 +12,10 @@ The private file is not packaged or committed.
 | `version` | 2 | 2 |
 | `watches` | required | 1-5 movie objects, each with a unique ID |
 | `poll_seconds` | 60 | 60-3600 |
-| `aggregation_seconds` | 10 | 0-60 |
+| `aggregation_seconds` | 0 | 0-60; compatibility only, guarded delivery never waits for aggregation |
+| `readiness_retry_seconds` | 2 | 1-60; pending-map business rejection retry interval |
+| `readiness_timeout_seconds` | 8 | 2-20; per-request network timeout |
+| `readiness_freshness_seconds` | 10 | 5-30; maximum lifetime of an accepted map proof |
 | `freshness_seconds` | 180 | 30-600 |
 | `max_backoff_seconds` | 900 | 60-3600; each schedule has its own retry clock |
 | `catalogue_refresh_seconds` | 60 | 60-600 |
@@ -26,6 +29,10 @@ independent worker and retry clock. HTTP responses with `Age` above 180 seconds
 are always rejected, even if `freshness_seconds` is set higher; the latter
 controls application observation freshness. Missing `Age` does not prove that
 the provider's underlying data is current.
+
+Readiness map requests reject an explicit HTTP cache Age above 5 seconds.
+Scheduling options do not change preference generations or reset baselines.
+See [readiness](booking-readiness.md) for denial backoff and current platform coverage.
 
 ## Each watch
 
@@ -76,6 +83,11 @@ Exact normalized names are fallback links.
 There is no fuzzy merge. Review `state.name_based_theatres` in status for venues
 that may need aliases. Distinct same-provider IDs with an ambiguous name are
 rejected until an explicit mapping resolves them.
+
+The example also includes seven reviewed PVR/INOX mappings, including Marina Mall.
+These map identities and do not restrict `theatres: []`. Startup/config reload
+reconciles stored offers and receipt identities before applying the shared-show
+BookMyShow veto or District-only fallback. See [readiness policy](booking-readiness.md).
 
 ## Reload and baseline rules
 

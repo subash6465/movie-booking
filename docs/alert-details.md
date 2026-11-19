@@ -20,7 +20,9 @@ Each platform can additionally supply the following details independently:
 Details are displayed under their platform with the offer's observation time in
 IST. They are **provider-reported snapshots**, not independently verified physical
 capacity or guaranteed availability at checkout. Listed prices are not final
-checkout totals. No extra seat-map requests, seat holds or paid APIs are used.
+checkout totals. This enrichment uses the existing listing responses; the
+separate [readiness gate](booking-readiness.md) makes passive map reads before
+notification. No seat holds or paid APIs are used.
 
 ## Validation and fallback
 
